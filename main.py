@@ -150,6 +150,57 @@ class FallTemplateBot2026(ForecastBot):
                 await asyncio.sleep(wait)
             self._last_groq_call_at = time.monotonic()
 
+    MAX_ELIGIBLE_QUESTIONS_PER_RUN = 10
+
+    async def forecast_on_tournaments(
+        self,
+        tournament_ids: list[int | str],
+        return_exceptions: bool = False,
+    ):
+        """Preflight all targets together before starting any research."""
+        eligible_questions = []
+        seen_question_ids = set()
+
+        for tournament_id in tournament_ids:
+            questions = self.metaculus_client.get_all_open_questions_from_tournament(
+                tournament_id
+            )
+            for question in questions:
+                if (
+                    self.skip_previously_forecasted_questions
+                    and question.already_forecasted
+                ):
+                    continue
+                question_id = question.id_of_question
+                if question_id is None:
+                    raise RuntimeError(
+                        "Cannot safely enforce the question limit: a fetched question has no ID"
+                    )
+                if question_id in seen_question_ids:
+                    continue
+                seen_question_ids.add(question_id)
+                eligible_questions.append(question)
+
+        eligible_count = len(eligible_questions)
+        logger.info(
+            "Preflight found %d eligible unique questions across %d target(s)",
+            eligible_count,
+            len(tournament_ids),
+        )
+        if eligible_count > self.MAX_ELIGIBLE_QUESTIONS_PER_RUN:
+            raise RuntimeError(
+                f"Aborting before research: {eligible_count} eligible unique questions "
+                f"exceed the per-run limit of {self.MAX_ELIGIBLE_QUESTIONS_PER_RUN}"
+            )
+
+        return await self.forecast_questions(eligible_questions, return_exceptions)
+
+    async def forecast_on_tournament(
+        self, tournament_id: int | str, return_exceptions: bool = False
+    ):
+        """Apply the same fail-closed limit to callers using one target."""
+        return await self.forecast_on_tournaments([tournament_id], return_exceptions)
+
     ##################################### RESEARCH #####################################
 
     async def run_research(self, question: MetaculusQuestion) -> str:
@@ -783,17 +834,15 @@ if __name__ == "__main__":
     # summary printers below.
     client = MetaculusClient()
     if run_mode == "tournament":
-        seasonal_tournament_reports = asyncio.run(
-            template_bot.forecast_on_tournament(
-                client.CURRENT_AI_COMPETITION_ID, return_exceptions=True
+        forecast_reports = asyncio.run(
+            template_bot.forecast_on_tournaments(
+                [
+                    client.CURRENT_AI_COMPETITION_ID,
+                    client.CURRENT_MINIBENCH_ID,
+                ],
+                return_exceptions=True,
             )
         )
-        minibench_reports = asyncio.run(
-            template_bot.forecast_on_tournament(
-                client.CURRENT_MINIBENCH_ID, return_exceptions=True
-            )
-        )
-        forecast_reports = seasonal_tournament_reports + minibench_reports
     elif run_mode == "metaculus_cup":
         # The Metaculus Cup may be uninitialized near the start of a season
         # (Jan/May/Sep). MetaculusClient.ACX_2025_TOURNAMENT = 32564 and

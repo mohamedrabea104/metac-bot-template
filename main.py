@@ -131,16 +131,24 @@ class FallTemplateBot2026(ForecastBot):
     # forecast prompts ~7K tokens; a 110s start-to-start spacing guarantees the
     # previous call's tokens have fully expired from the rolling 1-min window
     # (65s was not enough once prompts grew: 429 at 2229+7204).
+    # 2026-11-20 fix: the bot forecasts questions via asyncio.gather, so
+    # multiple tasks call _pace_groq concurrently. Without a lock both read a
+    # stale _last_groq_call_at, sleep in parallel and fire ~1s apart, so the
+    # second call 429s against the first call's in-window tokens (seen as
+    # "Used 3260, Requested 6702" at 110s pacing). The lock makes the
+    # check-sleep-timestamp sequence atomic so starts are truly serialized.
     _groq_min_interval_seconds = 110
     _last_groq_call_at = 0.0
+    _groq_pace_lock = asyncio.Lock()
 
     async def _pace_groq(self) -> None:
-        now = time.monotonic()
-        wait = self._groq_min_interval_seconds - (now - self._last_groq_call_at)
-        if wait > 0:
-            logger.info(f"Pacing Groq free tier: sleeping {wait:.0f}s")
-            await asyncio.sleep(wait)
-        self._last_groq_call_at = time.monotonic()
+        async with self._groq_pace_lock:
+            now = time.monotonic()
+            wait = self._groq_min_interval_seconds - (now - self._last_groq_call_at)
+            if wait > 0:
+                logger.info(f"Pacing Groq free tier: sleeping {wait:.0f}s")
+                await asyncio.sleep(wait)
+            self._last_groq_call_at = time.monotonic()
 
     ##################################### RESEARCH #####################################
 

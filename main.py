@@ -715,8 +715,10 @@ if __name__ == "__main__":
         folder_to_save_reports_to=None,
         skip_previously_forecasted_questions=True,
         extra_metadata_in_explanation=True,
-        # FREE-ONLY config: Groq free plan ($0, no card). default+researcher:
-        # gpt-oss-120b; parser+summarizer: gpt-oss-20b. Live limits verified
+        # FREE-ONLY config: Groq free plan ($0, no card). default:
+        # gpt-oss-120b; researcher: qwen3.8-27b (own TPM bucket - run #3
+        # showed research+forecast on one model exhausts the 8K TPM);
+        # parser+summarizer: gpt-oss-20b. Live limits verified
         # 2026-11-20 on console.groq.com/settings/limits: 30 RPM, 1K RPD,
         # 8K TPM, 200K TPD per model. No paid fallback anywhere.
         llms={
@@ -727,7 +729,7 @@ if __name__ == "__main__":
                 allowed_tries=3,
             ),
             "researcher": GeneralLlm(
-                model="groq/openai/gpt-oss-120b",
+                model="groq/qwen/qwen3.8-27b",
                 temperature=0.3,
                 timeout=120,
                 allowed_tries=3,

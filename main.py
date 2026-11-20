@@ -715,17 +715,25 @@ if __name__ == "__main__":
         folder_to_save_reports_to=None,
         skip_previously_forecasted_questions=True,
         extra_metadata_in_explanation=True,
-        # llms={
-        #     "default": GeneralLlm(
-        #         model="openrouter/openai/gpt-4o",
-        #         temperature=0.3,
-        #         timeout=40,
-        #         allowed_tries=2,
-        #     ),
-        #     "summarizer": "openai/gpt-4o-mini",
-        #     "researcher": "asknews/news-summaries",
-        #     "parser": "openai/gpt-4o-mini",
-        # },
+        # FREE-ONLY config: every call path pinned to $0 OpenRouter models
+        # (verified 2026-11-20 against the OpenRouter models API: prompt and
+        # completion prices both 0). No paid fallback anywhere.
+        llms={
+            "default": GeneralLlm(
+                model="openrouter/nvidia/nemotron-3.5-super-vl:free",
+                temperature=0.3,
+                timeout=120,
+                allowed_tries=3,
+            ),
+            "researcher": GeneralLlm(
+                model="openrouter/nvidia/nemotron-3.5-super-vl:free",
+                temperature=0.3,
+                timeout=120,
+                allowed_tries=3,
+            ),
+            "summarizer": "openrouter/google/gemma-4-31b-it:free",
+            "parser": "openrouter/google/gemma-4-31b-it:free",
+        },
     )
 
     # Per-mode tournament URL shown in the summary banner footer. These

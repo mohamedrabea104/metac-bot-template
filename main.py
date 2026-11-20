@@ -1,6 +1,7 @@
 import argparse
 import asyncio
 import logging
+import time
 from datetime import datetime, timezone
 from typing import Literal
 
@@ -126,6 +127,20 @@ class FallTemplateBot2026(ForecastBot):
     _concurrency_limiter = asyncio.Semaphore(_max_concurrent_questions)
     _structure_output_validation_samples = 1  # free-tier: halve structured-call volume
 
+    # Groq free plan enforces 8K tokens/min per model. Research and forecast
+    # prompts are each ~5-7K tokens on gpt-oss-120b, so two 120b calls inside
+    # one minute always 429. Space every 120b call at least 65s apart.
+    _groq_min_interval_seconds = 65
+    _last_groq_call_at = 0.0
+
+    async def _pace_groq(self) -> None:
+        now = time.monotonic()
+        wait = self._groq_min_interval_seconds - (now - self._last_groq_call_at)
+        if wait > 0:
+            logger.info(f"Pacing Groq free tier: sleeping {wait:.0f}s")
+            await asyncio.sleep(wait)
+        self._last_groq_call_at = time.monotonic()
+
     ##################################### RESEARCH #####################################
 
     async def run_research(self, question: MetaculusQuestion) -> str:
@@ -136,6 +151,7 @@ class FallTemplateBot2026(ForecastBot):
             prompt = self._get_research_prompt(question, researcher)
 
             if isinstance(researcher, GeneralLlm):
+                await self._pace_groq()
                 research = await researcher.invoke(prompt)
             elif (
                 researcher == "asknews/news-summaries"
@@ -159,6 +175,7 @@ class FallTemplateBot2026(ForecastBot):
             elif not researcher or researcher == "None" or researcher == "no_research":
                 research = ""
             else:
+                await self._pace_groq()
                 research = await self.get_llm("researcher", "llm").invoke(prompt)
             logger.info(f"Found Research for URL {question.page_url}:\n{research}")
             return research
@@ -235,6 +252,7 @@ class FallTemplateBot2026(ForecastBot):
         question: BinaryQuestion,
         prompt: str,
     ) -> ReasonedPrediction[float]:
+        await self._pace_groq()
         reasoning = await self.get_llm("default", "llm").invoke(prompt)
         logger.info(f"Reasoning for URL {question.page_url}: {reasoning}")
         parsing_instructions = clean_indents(
@@ -317,6 +335,7 @@ class FallTemplateBot2026(ForecastBot):
             {self._create_resolved_question_parsing_message()}
             """
         )
+        await self._pace_groq()
         reasoning = await self.get_llm("default", "llm").invoke(prompt)
         logger.info(f"Reasoning for URL {question.page_url}: {reasoning}")
         predicted_option_list: PredictedOptionList = await structure_output(
@@ -400,6 +419,7 @@ class FallTemplateBot2026(ForecastBot):
         question: NumericQuestion,
         prompt: str,
     ) -> ReasonedPrediction[NumericDistribution]:
+        await self._pace_groq()
         reasoning = await self.get_llm("default", "llm").invoke(prompt)
         logger.info(f"Reasoning for URL {question.page_url}: {reasoning}")
         parsing_instructions = clean_indents(
@@ -496,6 +516,7 @@ class FallTemplateBot2026(ForecastBot):
         question: DateQuestion,
         prompt: str,
     ) -> ReasonedPrediction[NumericDistribution]:
+        await self._pace_groq()
         reasoning = await self.get_llm("default", "llm").invoke(prompt)
         logger.info(f"Reasoning for URL {question.page_url}: {reasoning}")
         parsing_instructions = clean_indents(
@@ -715,12 +736,12 @@ if __name__ == "__main__":
         folder_to_save_reports_to=None,
         skip_previously_forecasted_questions=True,
         extra_metadata_in_explanation=True,
-        # FREE-ONLY config: Groq free plan ($0, no card). default:
-        # gpt-oss-120b; researcher: qwen3.8-27b (own TPM bucket - run #3
-        # showed research+forecast on one model exhausts the 8K TPM);
-        # parser+summarizer: gpt-oss-20b. Live limits verified
-        # 2026-11-20 on console.groq.com/settings/limits: 30 RPM, 1K RPD,
-        # 8K TPM, 200K TPD per model. No paid fallback anywhere.
+        # FREE-ONLY config: Groq free plan ($0, no card). default+researcher:
+        # gpt-oss-120b, paced >=65s apart via _pace_groq (8K TPM per model;
+        # qwen3.8-27b was tried for research but its 1K output-tokens/min cap
+        # rejects research-sized answers); parser+summarizer: gpt-oss-20b.
+        # Limits verified 2026-11-20 on console.groq.com/settings/limits:
+        # 30 RPM, 1K RPD, 8K TPM, 200K TPD per model. No paid fallback.
         llms={
             "default": GeneralLlm(
                 model="groq/openai/gpt-oss-120b",
@@ -729,7 +750,7 @@ if __name__ == "__main__":
                 allowed_tries=3,
             ),
             "researcher": GeneralLlm(
-                model="groq/qwen/qwen3.8-27b",
+                model="groq/openai/gpt-oss-120b",
                 temperature=0.3,
                 timeout=120,
                 allowed_tries=3,

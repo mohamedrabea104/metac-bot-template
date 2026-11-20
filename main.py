@@ -127,10 +127,11 @@ class FallTemplateBot2026(ForecastBot):
     _concurrency_limiter = asyncio.Semaphore(_max_concurrent_questions)
     _structure_output_validation_samples = 1  # free-tier: halve structured-call volume
 
-    # Groq free plan enforces 8K tokens/min per model. Research and forecast
-    # prompts are each ~5-7K tokens on gpt-oss-120b, so two 120b calls inside
-    # one minute always 429. Space every 120b call at least 65s apart.
-    _groq_min_interval_seconds = 65
+    # Groq free plan enforces 8K tokens/min per model. AskNews research makes
+    # forecast prompts ~7K tokens; a 110s start-to-start spacing guarantees the
+    # previous call's tokens have fully expired from the rolling 1-min window
+    # (65s was not enough once prompts grew: 429 at 2229+7204).
+    _groq_min_interval_seconds = 110
     _last_groq_call_at = 0.0
 
     async def _pace_groq(self) -> None:
@@ -177,6 +178,9 @@ class FallTemplateBot2026(ForecastBot):
             else:
                 await self._pace_groq()
                 research = await self.get_llm("researcher", "llm").invoke(prompt)
+            # Keep research+prompt under Groq's 8K TPM cap: cap research text.
+            if len(research) > 14000:
+                research = research[:14000] + "\n[research truncated for free-tier token limit]"
             logger.info(f"Found Research for URL {question.page_url}:\n{research}")
             return research
 

@@ -709,30 +709,31 @@ if __name__ == "__main__":
     # uncomment and edit to pin specific models.
     template_bot = FallTemplateBot2026(
         research_reports_per_question=1,
-        predictions_per_research_report=1,  # free-tier: stay within the 50/day OpenRouter free cap
+        predictions_per_research_report=1,  # free-tier: Groq free plan, 1K requests/day per model
         use_research_summary_to_forecast=False,
         publish_reports_to_metaculus=publish_to_metaculus,
         folder_to_save_reports_to=None,
         skip_previously_forecasted_questions=True,
         extra_metadata_in_explanation=True,
-        # FREE-ONLY config: every call path pinned to $0 OpenRouter models
-        # (verified 2026-11-20 against the OpenRouter models API: prompt and
-        # completion prices both 0). No paid fallback anywhere.
+        # FREE-ONLY config: Groq free plan ($0, no card). default+researcher:
+        # gpt-oss-120b; parser+summarizer: gpt-oss-20b. Live limits verified
+        # 2026-11-20 on console.groq.com/settings/limits: 30 RPM, 1K RPD,
+        # 8K TPM, 200K TPD per model. No paid fallback anywhere.
         llms={
             "default": GeneralLlm(
-                model="openrouter/nvidia/nemotron-3.5-super-vl:free",
+                model="groq/openai/gpt-oss-120b",
                 temperature=0.3,
                 timeout=120,
                 allowed_tries=3,
             ),
             "researcher": GeneralLlm(
-                model="openrouter/nvidia/nemotron-3.5-super-vl:free",
+                model="groq/openai/gpt-oss-120b",
                 temperature=0.3,
                 timeout=120,
                 allowed_tries=3,
             ),
-            "summarizer": "openrouter/google/gemma-4-31b-it:free",
-            "parser": "openrouter/google/gemma-4-31b-it:free",
+            "summarizer": "groq/openai/gpt-oss-20b",
+            "parser": "groq/openai/gpt-oss-20b",
         },
     )
 
